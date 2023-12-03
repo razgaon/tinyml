@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from src.db import JsonDB
 from src.llm import call_llm
 from src.mail_client import GmailClient
+from src.templates import get_filter_system_prompt, get_summary_system_prompt
 
 
 load_dotenv()
@@ -13,11 +14,7 @@ def get_user_name():
     user_first_name = input("Enter your first name: ")
     return user_first_name
 
-
-def evaluate_email(
-    email_data: Dict[str, Union[str, List[str]]],
-    user_first_name: str,
-) -> bool:
+def get_user_message_in_llm_format(email_data: Dict[str, Union[str, List[str]]]) -> str:
     MAX_EMAIL_LEN = 3000
     
     truncated_body = email_data["body"][:MAX_EMAIL_LEN] + (
@@ -30,31 +27,37 @@ def evaluate_email(
     From: {email_data['from']}
     Cc: {email_data['cc']}
     Body: {truncated_body}"""
+    
+    return user_message
 
+def summarize_email(
+    email_data: Dict[str, Union[str, List[str]]],
+    user_first_name: str,
+) -> bool:
+    
+    user_message = get_user_message_in_llm_format(email_data)
+    system_prompt = get_summary_system_prompt(user_first_name)
     try:
-        completion = call_llm("llama2", user_message, first_name=user_first_name)
+        completion = call_llm("llama2", system_prompt, user_message, first_name=user_first_name)
+        return completion
+    except Exception as e:
+        print(f"Failed to summarize email: {e}")
+        return "Failed to summarize email"
+
+def filter_email(
+    email_data: Dict[str, Union[str, List[str]]],
+    user_first_name: str,
+) -> bool:
+    
+    user_message = get_user_message_in_llm_format(email_data)
+    system_prompt = get_filter_system_prompt(user_first_name)
+    try:
+        completion = call_llm("llama2", system_prompt, user_message, first_name=user_first_name)
         print(completion[:min(10, len(completion))])
         return completion.startswith("True")
     except Exception as e:
-        print(f"Failed to evaluate email: {e}")
+        print(f"Failed to filter email: {e}")
         return False
-
-
-def process_email(
-    gmail: Resource,
-    message_info: Dict[str, Union[str, List[str]]],
-    email_data_parsed: Dict[str, Union[str, List[str]]],
-    user_first_name: str,
-) -> int:
-    # Evaluate email
-    if evaluate_email(email_data_parsed, user_first_name):
-        print("Email is not worth the time, marking as read")
-        gmail.mark_email_as_read(message_info)
-        return 1
-    else:
-        print("Email is worth the time, leaving as unread")
-    return 0
-
 
 def report_statistics(
     total_filtered_emails: int, total_emails_fetched: int
@@ -90,11 +93,7 @@ def main():
             total_emails_fetched += 1
             all_db.insert(email_data_parsed)
 
-            # Process email
-            # process_email(
-                # gmail, message_info, email_data_parsed, user_first_name
-            # )
-            if (evaluate_email(email_data_parsed, user_first_name)):
+            if (filter_email(email_data_parsed, user_first_name)):
                 total_filtered_emails += 1
                 print("Interesting email: " + email_data_parsed['subject'])
                 filtered_db.insert(email_data_parsed)
