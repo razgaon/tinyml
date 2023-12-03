@@ -1,3 +1,4 @@
+import datetime
 import base64
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -6,6 +7,30 @@ from typing import Dict, List, Optional, Union, Tuple
 from googleapiclient.discovery import build, Resource
 from google.oauth2.credentials import Credentials
 from dataclasses import dataclass
+import re
+
+def remove_http_https_links(text):
+    # Define the regex pattern for http and https URLs
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    
+    # Adjusted regex for \r\n
+    newline_carriage_pattern = r'(\r\n)+'
+    
+    non_ascii_pattern = '[^\x00-\x7F]+'
+    
+    multiple_underscores_pattern = r'_{2,}'
+    
+    multiple_dashes_pattern = r'-{2,}'
+
+    # Remove URLs and reduce multiple \r\n to one
+    text = re.sub(url_pattern, '', text)
+    text = re.sub(newline_carriage_pattern, '\r\n', text)
+    text = re.sub(non_ascii_pattern, '', text)
+    text = re.sub(multiple_underscores_pattern, '_', text)
+    text = re.sub(multiple_dashes_pattern, '-', text)
+    
+    return text
+    
 
 
 @dataclass
@@ -16,6 +41,7 @@ class EmailData:
     cc: Optional[str]
     labels: List[str]
     body: str
+    date: str
 
 
 # If modifying these SCOPES, delete the file token.json.
@@ -100,9 +126,7 @@ class GmailClient(object):
         except Exception as e:
             print(f"Failed to parse email data: {e}")
             return {}
-
-        print(f"Fetched email - Subject: {subject}, Sender: {sender}")
-        # TODO: Remove junk from the email body (urls)
+        
         # Extract the plain text body
         parts = msg["payload"].get("parts", [])
         for part in parts:
@@ -113,14 +137,20 @@ class GmailClient(object):
         else:
             body = ""
 
+        date = datetime.datetime.fromtimestamp(int(msg["internalDate"]) / 1000).strftime('%Y-%m-%d')
+        
+        if not date:
+            date = "unknown"
+        
         # Parse email data
         email_data_parsed: EmailData = {
-            "subject": subject,
+            "subject": remove_http_https_links(subject),
             "to": to,
             "from": sender,
             "cc": cc,
             "labels": msg["labelIds"],
-            "body": body,
+            "date": date,
+            "body": remove_http_https_links(body),
         }
         return email_data_parsed
 

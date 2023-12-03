@@ -19,7 +19,4 @@ def call_llm(model: str, prompt: str, first_name: str) -> str:
         ),
     )
 
-    return response.json()["response"]
-
-
-print(call_llm("llama2", "I have an offer for $120 for you!", first_name="raz"))
+    return response.json()["response"]  

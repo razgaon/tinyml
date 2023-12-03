@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional, Union
 from googleapiclient.discovery import Resource
 from dotenv import load_dotenv
+from src.db import JsonDB
 from src.llm import call_llm
 from src.mail_client import GmailClient
 
@@ -18,30 +19,25 @@ def evaluate_email(
     user_first_name: str,
 ) -> bool:
     MAX_EMAIL_LEN = 3000
-
+    
     truncated_body = email_data["body"][:MAX_EMAIL_LEN] + (
         "..." if len(email_data["body"]) > MAX_EMAIL_LEN else ""
     )
-    user_message: Dict[str, str] = {
-        "role": "user",
-        "content": (
-            f"Subject: {email_data['subject']}\n"
-            f"To: {email_data['to']}\n"
-            f"From: {email_data['from']}\n"
-            f"Cc: {email_data['cc']}\n"
-            f"Gmail labels: {email_data['labels']}\n"
-            f"Body: {truncated_body}"
-        ),
-    }
+    
+    user_message: Dict[str, str] = f"""
+    Subject: {email_data['subject']}
+    To: {email_data['to']}
+    From: {email_data['from']}
+    Cc: {email_data['cc']}
+    Body: {truncated_body}"""
 
     try:
         completion = call_llm("llama2", user_message, first_name=user_first_name)
+        print(completion[:min(10, len(completion))])
+        return completion.startswith("True")
     except Exception as e:
-        print(f"Failed to evaluate email with GPT-4: {e}")
+        print(f"Failed to evaluate email: {e}")
         return False
-
-    # Extract and return the response
-    return completion.choices[0].message.content.strip() == "True"
 
 
 def process_email(
@@ -61,48 +57,57 @@ def process_email(
 
 
 def report_statistics(
-    total_unread_emails: int, total_pages_fetched: int, total_marked_as_read: int
+    total_filtered_emails: int, total_emails_fetched: int
 ) -> None:
-    print(f"Total number of unread emails fetched: {total_unread_emails}")
-    print(f"Total number of pages fetched: {total_pages_fetched}")
-    print(f"Total number of emails marked as read: {total_marked_as_read}")
-    print(
-        f"Final number of unread emails: {total_unread_emails - total_marked_as_read}"
-    )
+    print(f"Total number of emails fetched:  {total_emails_fetched}")
+    print(f"Total number of emails filtered: {total_filtered_emails}")
 
 
 def main():
     gmail = GmailClient()
     user_first_name = get_user_name()
+    filtered_db = JsonDB("src/filtered.json")
+    removed_db = JsonDB("src/removed.json")
+    all_db = JsonDB("src/all.json")
 
     page_token: Optional[str] = None
 
-    total_unread_emails = 0
-    total_pages_fetched = 0
-    total_marked_as_read = 0
+    total_filtered_emails = 0
+    total_emails_fetched = 0
 
     while True:  # Continue looping until no more pages of messages
         # Fetch unread emails
         messages, page_token = gmail.fetch_emails(page_token)
-        total_pages_fetched += 1
-        print(f"Fetched page {total_pages_fetched} of emails")
 
-        total_unread_emails += len(messages)
         for message_info in messages:
+            
             # Fetch and parse email data
             email_data_parsed = gmail.parse_email_data(message_info)
+            
+            if "body" not in email_data_parsed:
+                continue
+            
+            total_emails_fetched += 1
+            all_db.insert(email_data_parsed)
 
             # Process email
-            # total_marked_as_read += process_email(
-            #     gmail, message_info, email_data_parsed, user_first_name
+            # process_email(
+                # gmail, message_info, email_data_parsed, user_first_name
             # )
-        print(email_data_parsed)
+            if (evaluate_email(email_data_parsed, user_first_name)):
+                total_filtered_emails += 1
+                print("Interesting email: " + email_data_parsed['subject'])
+                filtered_db.insert(email_data_parsed)
+            else:
+                print("Not interesting email: " + email_data_parsed['subject'])
+                removed_db.insert(email_data_parsed)
+                
         break
 
         if not page_token:
             break  # Exit the loop if there are no more pages of messages
 
-    report_statistics(total_unread_emails, total_pages_fetched, total_marked_as_read)
+    report_statistics(total_filtered_emails, total_emails_fetched)
 
 
 if __name__ == "__main__":
