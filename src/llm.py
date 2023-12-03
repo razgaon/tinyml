@@ -1,8 +1,6 @@
 import requests
 import json
 
-from src.templates import get_system_prompt
-
 URL = "http://localhost:11434/api/generate"
 
 

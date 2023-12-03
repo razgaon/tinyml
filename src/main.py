@@ -1,5 +1,4 @@
 from typing import Dict, List, Optional, Union
-from googleapiclient.discovery import Resource
 from dotenv import load_dotenv
 from src.db import JsonDB
 from src.llm import call_llm
@@ -58,24 +57,13 @@ def filter_email(
     except Exception as e:
         print(f"Failed to filter email: {e}")
         return False
-
-def report_statistics(
-    total_filtered_emails: int, total_emails_fetched: int
-) -> None:
-    print(f"Total number of emails fetched:  {total_emails_fetched}")
-    print(f"Total number of emails filtered: {total_filtered_emails}")
-
-
-def main():
+    
+def collect_emails():
     gmail = GmailClient()
-    user_first_name = get_user_name()
-    filtered_db = JsonDB("src/filtered.json")
-    removed_db = JsonDB("src/removed.json")
     all_db = JsonDB("src/all.json")
-
+    
     page_token: Optional[str] = None
 
-    total_filtered_emails = 0
     total_emails_fetched = 0
 
     while True:  # Continue looping until no more pages of messages
@@ -92,6 +80,27 @@ def main():
             
             total_emails_fetched += 1
             all_db.insert(email_data_parsed)
+            
+        if not page_token:
+            break 
+    print(f"Total number of emails fetched:  {total_emails_fetched}")
+
+
+def filter_emails():
+    user_first_name = get_user_name()
+    filtered_db = JsonDB("src/filtered.json")
+    removed_db = JsonDB("src/removed.json")
+    all_db = JsonDB("src/all.json")
+
+    total_filtered_emails = 0
+    total_emails_processed = 0
+    
+    messages = all_db.read()
+
+    for date in messages:
+        for email_data_parsed in messages[date]:        
+            total_emails_processed += 1
+            all_db.insert(email_data_parsed)
 
             if (filter_email(email_data_parsed, user_first_name)):
                 total_filtered_emails += 1
@@ -100,13 +109,12 @@ def main():
             else:
                 print("Not interesting email: " + email_data_parsed['subject'])
                 removed_db.insert(email_data_parsed)
-                
-        break
 
-        if not page_token:
-            break  # Exit the loop if there are no more pages of messages
+    print(f"Total number of interesting emails: {total_filtered_emails} / {total_emails_processed}")
 
-    report_statistics(total_filtered_emails, total_emails_fetched)
+def main():
+    filter_emails()
+    # collect_emails()
 
 
 if __name__ == "__main__":
