@@ -1,10 +1,13 @@
 import json
+import os
 from typing import Dict, List
-from datetime import datetime
 
 class JsonDB:
     def __init__(self, file_path: str):
         self.file_path = file_path
+        if not os.path.exists(file_path):
+            with open(file_path, 'w') as f:
+                json.dump({}, f)
 
     def read(self) -> Dict[str, List[Dict]]:
         with open(self.file_path, 'r') as f:

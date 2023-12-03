@@ -38,7 +38,6 @@ class EmailData:
     subject: str
     to: str
     sender: str
-    cc: Optional[str]
     labels: List[str]
     body: str
     date: str
@@ -120,9 +119,6 @@ class GmailClient(object):
             sender = next(
                 header["value"] for header in headers if header["name"] == "From"
             )
-            cc = next(
-                (header["value"] for header in headers if header["name"] == "Cc"), None
-            )
         except Exception as e:
             print(f"Failed to parse email data: {e}")
             return {}
@@ -147,7 +143,6 @@ class GmailClient(object):
             "subject": remove_http_https_links(subject),
             "to": to,
             "from": sender,
-            "cc": cc,
             "labels": msg["labelIds"],
             "date": date,
             "body": remove_http_https_links(body),
